@@ -1,6 +1,6 @@
 //! Types related to task management
 use super::TaskContext;
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
@@ -28,6 +28,11 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// 方法调用次数
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+   /// 开始时间
+    pub time: usize,
 }
 
 impl TaskControlBlock {
@@ -39,6 +44,8 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
+
+
     /// Based on the elf info in program, build the contents of task in a new address space
     pub fn new(elf_data: &[u8], app_id: usize) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
@@ -63,6 +70,8 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_times: [0; MAX_SYSCALL_NUM],
+            time: 0,
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

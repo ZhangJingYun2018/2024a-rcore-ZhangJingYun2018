@@ -14,8 +14,11 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -79,6 +82,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.time = get_time_ms();
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -126,6 +130,25 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    /// 往虚拟地址拷贝数据
+    fn map_user_stack(&self, ustart: usize, data: &[u8]) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task]
+            .memory_set
+            .map_user_stack(ustart, data)
+    }
+
+    fn get_task_info(&self) -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+        let inner = TASK_MANAGER.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &inner.tasks[current];
+        (
+            current_task.task_status,
+            current_task.syscall_times,
+            get_time_ms() - current_task.time,
+        )
+    }
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -141,6 +164,9 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            if inner.tasks[next].time ==0{
+                inner.tasks[next].time = get_time_ms();
+            };
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -201,4 +227,42 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 用户虚拟地址数据拷贝
+pub fn map_user_stack(ustart: usize, data: &[u8]) -> bool {
+    TASK_MANAGER.map_user_stack(ustart, data)
+}
+
+/// 获取任务信息
+pub fn get_task_info() -> (TaskStatus, [u32; MAX_SYSCALL_NUM], usize) {
+    TASK_MANAGER.get_task_info()
+}
+
+/// 设置系统调用次数
+pub fn set_syscall_times(num: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks[current_task].syscall_times[num] += 1;
+}
+
+/// 申请内存
+pub fn alloc_memory(start: VirtAddr, end: VirtAddr, port: u8) -> isize {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    let memory_set = &mut inner.tasks[current_task].memory_set;
+    if memory_set.has_framed_area(start, end){
+        -1
+    }else {
+        memory_set.map_area(start, end, MapPermission::U | MapPermission::from_bits(7u8>>(3u8-port)<<1).unwrap());
+        0
+    }
+   
+}
+
+/// 释放内存
+pub fn free_memory(start: VirtAddr, end: VirtAddr) -> isize{
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks[current_task].memory_set.unmap_area(start, end)
 }
