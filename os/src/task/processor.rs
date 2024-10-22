@@ -8,6 +8,7 @@ use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -61,6 +62,9 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.time == 0 {
+                task_inner.time = get_time_ms();
+            }
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -109,3 +113,35 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
 }
+
+// 交换线程
+// pub fn spawn_task(path: *const u8) -> isize {
+//     let mut processor = PROCESSOR.exclusive_access();
+//     let task = processor.current.take().unwrap();
+//     let token =  task.get_user_token();
+//     let path = translated_str(token, path);
+//     let mut task_inner = task.inner_exclusive_access();
+//     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
+//     task_inner.task_status = TaskStatus::Ready;
+//     drop(task_inner);
+//     if let Some(data) = get_app_data_by_name(path.as_str()) {
+//         let tcb = TaskControlBlock::new(data);
+//         let pid = tcb.pid.0;
+//         let tcb = Arc::new(tcb);
+//         let tcb1 = Arc::clone(&tcb);
+//         let mut tcb1 = tcb1.inner_exclusive_access();
+//         tcb1.task_status = TaskStatus::Running;
+//         tcb1.time = get_time_ms();
+//         let cx = &mut tcb1.task_cx as *mut TaskContext;
+//         drop(tcb1);
+//         add_task(task);
+//         processor.current = Some(tcb);
+//         drop(processor);
+//         unsafe {
+//             __switch(task_cx_ptr, cx);
+//         }
+//         pid as isize
+//     } else {
+//         -1
+//     }
+// }
