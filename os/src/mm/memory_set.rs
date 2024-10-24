@@ -40,6 +40,7 @@ pub fn kernel_token() -> usize {
 pub struct MemorySet {
     page_table: PageTable,
     areas: Vec<MapArea>,
+    map_areas: BTreeMap<VPNRange, MapArea>,
 }
 
 impl MemorySet {
@@ -48,6 +49,7 @@ impl MemorySet {
         Self {
             page_table: PageTable::new(),
             areas: Vec::new(),
+            map_areas: BTreeMap::new(),
         }
     }
     /// Get the page table token
@@ -317,6 +319,45 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+       /// 是否存在物理内存映射
+       pub fn has_framed_area(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        self.map_areas.iter().any(|(vpn_range, _)| {
+            vpn_range.get_start() <= start.floor() && start.floor() < vpn_range.get_end()
+                || vpn_range.get_start() < end.ceil()
+                    && end.ceil() <= vpn_range.get_end()
+        })
+    }
+    /// map the area
+    pub fn map_area(&mut self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut map_area = MapArea::new(start_va, end_va, MapType::Framed, permission);
+        map_area.map(&mut self.page_table);
+        self.map_areas.insert(map_area.vpn_range, map_area);
+    }
+    /// unmap the area
+    pub fn unmap_area(&mut self, start: VirtAddr, end: VirtAddr) -> isize {
+        let vpr = VPNRange::new(start.floor(), end.ceil());
+        if let Some(area) = self.map_areas.get_mut(&vpr) {
+            area.unmap(&mut self.page_table);
+            self.map_areas.remove(&vpr);
+            0
+        } else {
+            -1
+        }
+    }
+    /// push date to the framed.  
+    /// Todo: 考虑一下长度超过一页的情况
+    pub fn map_user_stack(&mut self, ustart: usize, data: &[u8]) -> bool {
+        let vad = VirtAddr::from(ustart);
+        let dst = &mut self
+            .page_table
+            .translate(vad.floor())
+            .unwrap()
+            .ppn()
+            .get_bytes_array()[vad.page_offset()..vad.page_offset() + data.len()];
+        dst.copy_from_slice(data);
+        true
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory

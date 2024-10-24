@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -21,6 +21,7 @@ pub struct OSInode {
     readable: bool,
     writable: bool,
     inner: UPSafeCell<OSInodeInner>,
+    stat: Stat,
 }
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
@@ -30,11 +31,18 @@ pub struct OSInodeInner {
 
 impl OSInode {
     /// create a new inode in memory
-    pub fn new(readable: bool, writable: bool, inode: Arc<Inode>) -> Self {
+    pub fn new(readable: bool, writable: bool, inode: Arc<Inode>,ino: u32) -> Self {
+        let ino = ino as u64;
         Self {
             readable,
             writable,
             inner: unsafe { UPSafeCell::new(OSInodeInner { offset: 0, inode }) },
+            stat: Stat {
+                ino,
+                mode: StatMode::FILE,
+                nlink: 1,
+                ..Default::default()
+            },
         }
     }
     /// read all data from the inode
@@ -51,6 +59,32 @@ impl OSInode {
             v.extend_from_slice(&buffer[..len]);
         }
         v
+    }
+    /// 硬链接
+    pub fn linkat(old_name: &str, new_name: &str) {
+        let inode_id = ROOT_INODE.linkat(old_name, new_name);
+        println!("link loadname: {} inode_id: {}", old_name, inode_id);
+    }
+
+    /// stat
+    pub fn stat(&self) -> Stat {
+        let count =ROOT_INODE.stat(self.stat.ino as usize);
+        println!("stat loadname: {} count: {}", self.stat.ino, count);
+        Stat{
+            nlink: count,
+            ..self.stat
+        }
+    }
+
+    /// 删除硬链接
+    pub fn unlinkat(name: &str) {
+            if let Some((inode,ino)) = ROOT_INODE.myfind(name) {
+                println!("unlink loadname: {} inode_id: {}", name, ino);
+                let count = ROOT_INODE.unlinkat(name,ino);
+                if count == 0 {
+                inode.clear();
+            }
+        }
     }
 }
 
@@ -104,22 +138,22 @@ impl OpenFlags {
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     let (readable, writable) = flags.read_write();
     if flags.contains(OpenFlags::CREATE) {
-        if let Some(inode) = ROOT_INODE.find(name) {
+        if let Some((inode,ino)) = ROOT_INODE.myfind(name) {
             // clear size
             inode.clear();
-            Some(Arc::new(OSInode::new(readable, writable, inode)))
+            Some(Arc::new(OSInode::new(readable, writable, inode, ino)))
         } else {
             // create file
             ROOT_INODE
-                .create(name)
-                .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+                .mycreate(name)
+                .map(|(inode,ino)|Arc::new(OSInode::new(readable, writable, inode, ino)))
         }
     } else {
-        ROOT_INODE.find(name).map(|inode| {
+        ROOT_INODE.myfind(name).map(|(inode,ino)| {
             if flags.contains(OpenFlags::TRUNC) {
                 inode.clear();
             }
-            Arc::new(OSInode::new(readable, writable, inode))
+            Arc::new(OSInode::new(readable, writable, inode, ino))
         })
     }
 }
@@ -154,5 +188,9 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+
+    fn stat(&self) -> Stat {
+        self.stat()
     }
 }

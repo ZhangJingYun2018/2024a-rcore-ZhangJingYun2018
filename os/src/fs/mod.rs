@@ -15,11 +15,13 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+    /// stat
+    fn stat(&self) -> Stat;
 }
 
 /// The stat of a inode
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug,Default)]
 pub struct Stat {
     /// ID of device containing file
     pub dev: u64,
@@ -36,6 +38,7 @@ pub struct Stat {
 bitflags! {
     /// The mode of a inode
     /// whether a directory or a file
+    #[derive(Default)]
     pub struct StatMode: u32 {
         /// null
         const NULL  = 0;

@@ -3,7 +3,7 @@ use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -35,6 +35,33 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
+    }
+
+     /// 往虚拟地址拷贝数据
+     pub fn map_user_stack(&self, ustart: usize, data: &[u8]) -> bool {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.map_user_stack(ustart, data)
+    }
+
+     /// 申请内存
+     pub fn alloc_memory(&self, start: VirtAddr, end: VirtAddr, port: u8) -> isize {
+        let mut inner = self.inner_exclusive_access();
+        let memory_set = &mut inner.memory_set;
+        if memory_set.has_framed_area(start, end) {
+            -1
+        } else {
+            memory_set.map_area(
+                start,
+                end,
+                MapPermission::U | MapPermission::from_bits(7u8 >> (3u8 - port) << 1).unwrap(),
+            );
+            0
+        }
+    }
+    /// 释放内存
+    pub fn free_memory(&self, start: VirtAddr, end: VirtAddr) -> isize {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.unmap_area(start, end)
     }
 }
 
@@ -71,6 +98,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    ///
+    pub stride: usize,
+
+    ///
+    pub priority: isize,
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +168,8 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    priority: 16,
                 })
             },
         };
@@ -216,6 +251,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: 0,
+                    priority: 16,
                 })
             },
         });
