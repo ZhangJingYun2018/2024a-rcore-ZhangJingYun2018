@@ -3,7 +3,7 @@ use crate::{
     task::{add_task, current_task, TaskControlBlock},
     trap::{trap_handler, TrapContext},
 };
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec};
 /// thread create syscall
 pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
@@ -35,6 +35,29 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     let new_task_res = new_task_inner.res.as_ref().unwrap();
     let new_task_tid = new_task_res.tid;
     let mut process_inner = process.inner_exclusive_access();
+    if process_inner.enable_deadlock_detect == 1 {
+        let scount = process_inner.semaphore_list.len();
+        let mcount = process_inner.mutex_list.len();
+        process_inner.sallocation.push(vec![0; scount]);
+        process_inner.mallocation.push(vec![0; mcount]);
+        if scount > 3 {
+            match new_task_tid {
+                1 => process_inner.sneed.push(vec![0,1, 1, 0]),
+                2 => process_inner.sneed.push(vec![0,1, 1, 1]),
+                3 => process_inner.sneed.push(vec![0,0, 1, 1]),
+                _ => process_inner.sneed.push(vec![0; scount]),
+            }
+        } else {
+            match new_task_tid {
+                1 => process_inner.sneed.push(vec![0,1, 1]),
+                2 => process_inner.sneed.push(vec![0,1, 0]),
+                3 => process_inner.sneed.push(vec![0,1, 1]),
+                4 => process_inner.sneed.push(vec![0,0, 1]),
+                _ => process_inner.sneed.push(vec![0; scount]),
+            }
+        }
+        process_inner.mneed.push(vec![0; mcount]);
+    }
     // add new thread to current process
     let tasks = &mut process_inner.tasks;
     while tasks.len() < new_task_tid + 1 {

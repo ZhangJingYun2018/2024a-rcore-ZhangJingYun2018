@@ -49,6 +49,20 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// 锁可用资源数量
+    pub mavailable: Vec<usize>,
+    /// 信号量可用资源数量
+    pub savailable: Vec<usize>,
+    /// 分配矩阵
+    pub mallocation: Vec<Vec<usize>>,
+    /// 需求矩阵
+    pub mneed: Vec<Vec<usize>>,
+    /// 分配矩阵
+    pub sallocation: Vec<Vec<usize>>,
+    /// 需求矩阵
+    pub sneed: Vec<Vec<usize>>,
+    /// 死锁检测开关
+    pub enable_deadlock_detect: usize,
 }
 
 impl ProcessControlBlockInner {
@@ -81,6 +95,56 @@ impl ProcessControlBlockInner {
     /// get a task with tid in this process
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
+    }
+
+    /// mutex 进行检查
+    pub fn check_mutex_safe(&self) -> bool {
+        let mut work = self.mavailable.clone();
+        let mut finish = vec![false; self.tasks.len()];
+        println!("task_count: {}", self.tasks.len());
+        loop {
+            let mut allocated = false;
+
+            for (i, (alloc, need)) in self.mallocation.iter().zip(&self.mneed).enumerate() {
+                if !finish[i] && need.iter().zip(&work).all(|(n, w)| n <= w) {
+                    for (j, &alloc_res) in alloc.iter().enumerate() {
+                        work[j] += alloc_res;
+                    }
+                    finish[i] = true;
+                    allocated = true;
+                }
+            }
+
+            if !allocated {
+                break;
+            }
+        }
+
+        finish.into_iter().all(|f| f)
+    }
+
+    /// sem 进行检查
+    pub fn check_sem_safe(&self,_sem_id: usize) -> bool {
+        let mut work = self.savailable.clone();
+        let mut finish = vec![false; self.tasks.len()];
+        loop {
+            let mut allocated = false;
+            for (i, (alloc, need)) in self.sallocation.iter().zip(&self.sneed).enumerate() {
+                if !finish[i] && need.iter().zip(&work).all(|(n, w)| n <= w) {
+                    for (j, &alloc_res) in alloc.iter().enumerate() {
+                        work[j] += alloc_res;
+                        }
+                    finish[i] = true;
+                    allocated = true;
+                }
+            }
+
+            if !allocated {
+                break;
+            }
+        }
+
+        finish.into_iter().all(|f| f)
     }
 }
 
@@ -119,6 +183,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    enable_deadlock_detect: 0,
+                    mavailable: vec![],
+                    savailable: vec![],
+                    mallocation: vec![vec![]],
+                    mneed: vec![vec![]],
+                    sallocation: vec![vec![]],
+                    sneed: vec![vec![]],
                 })
             },
         });
@@ -245,6 +316,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    enable_deadlock_detect: 0,
+                    mavailable: vec![],
+                    savailable: vec![],
+                    mallocation: vec![vec![]],
+                    mneed: vec![vec![]],
+                    sallocation: vec![vec![]],
+                    sneed: vec![vec![]],
                 })
             },
         });

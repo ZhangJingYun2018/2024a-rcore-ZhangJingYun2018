@@ -28,6 +28,12 @@ impl TaskControlBlock {
         let inner = process.inner_exclusive_access();
         inner.memory_set.token()
     }
+      /// 往虚拟地址拷贝数据
+      pub fn map_user_stack(&self, ustart: usize, data: &[u8]) -> bool {
+        let process = self.process.upgrade().unwrap();
+        let mut inner = process.inner_exclusive_access();
+        inner.memory_set.map_user_stack(ustart, data)
+    }
 }
 
 pub struct TaskControlBlockInner {

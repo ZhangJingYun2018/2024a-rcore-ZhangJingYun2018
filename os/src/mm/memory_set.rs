@@ -293,6 +293,20 @@ impl MemorySet {
             false
         }
     }
+
+    /// push date to the framed.  
+    /// Todo: 考虑一下长度超过一页的情况
+    pub fn map_user_stack(&mut self, ustart: usize, data: &[u8]) -> bool {
+        let vad = VirtAddr::from(ustart);
+        let dst = &mut self
+            .page_table
+            .translate(vad.floor())
+            .unwrap()
+            .ppn()
+            .get_bytes_array()[vad.page_offset()..vad.page_offset() + data.len()];
+        dst.copy_from_slice(data);
+        true
+    }
 }
 
 pub struct MapArea {
