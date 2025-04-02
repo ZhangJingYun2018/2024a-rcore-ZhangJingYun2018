@@ -1,5 +1,10 @@
 # rCore-Camp-Code-2024A
 
+# 训练营结果图片
+
+![image](p/1.PNG.png)
+
+
 ### Code
 - [Soure Code of labs for 2024A](https://github.com/LearningOS/rCore-Camp-Code-2024A)
 ### Documents
