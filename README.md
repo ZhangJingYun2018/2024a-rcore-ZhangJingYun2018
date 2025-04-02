@@ -2,7 +2,7 @@
 
 # 训练营结果图片
 
-![image](p/1.PNG.png)
+![image](pp/1.PNG)
 
 
 ### Code
